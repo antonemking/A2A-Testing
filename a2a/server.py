@@ -363,11 +363,13 @@ async def handle_task_send(params: dict, agent_graph) -> dict:
                     "result": msg.content[:200] if msg.content else ""
                 })
 
-        # Get final response
+        # Get final response (last AIMessage that has content and is not a tool call)
         for msg in reversed(result["messages"]):
-            if isinstance(msg, AIMessage) and msg.content and not hasattr(msg, 'name'):
-                response_text = msg.content
-                break
+            if isinstance(msg, AIMessage) and msg.content:
+                # Skip messages that are just tool calls (have tool_calls but no content)
+                if not getattr(msg, 'tool_calls', None):
+                    response_text = msg.content
+                    break
 
         # Build detailed response with actions
         if tools_used:
