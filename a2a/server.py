@@ -2,9 +2,19 @@
 
 Implements the Google A2A protocol endpoints for agent-to-agent communication.
 """
+import logging
 import os
+import sys
 from typing import Optional
 from uuid import uuid4
+
+# Configure logging to stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -216,22 +226,34 @@ def create_a2a_app(base_url: str = "http://localhost:8000") -> FastAPI:
     @app.post("/debug")
     async def debug_request(request: Request):
         """Debug endpoint - returns exactly what was received."""
+        import sys
+
+        raw_body = await request.body()
+        body_str = raw_body.decode() if raw_body else "(empty body)"
+
         try:
-            body = await request.json()
+            body = await request.json() if raw_body else {}
         except:
-            body = (await request.body()).decode()
+            body = body_str
+
         headers = dict(request.headers)
 
-        # Print to logs so you can see in Render console
-        print("=" * 50)
-        print("DEBUG: Incoming request from ServiceNow")
-        print(f"BODY: {body}")
-        print(f"HEADERS: {headers}")
-        print("=" * 50)
+        # Print to logs with flush
+        print("=" * 50, flush=True)
+        print("DEBUG: Incoming request from ServiceNow", flush=True)
+        print(f"RAW BODY: {body_str}", flush=True)
+        print(f"PARSED BODY: {body}", flush=True)
+        print(f"CONTENT-TYPE: {headers.get('content-type', 'not set')}", flush=True)
+        print(f"HEADERS: {headers}", flush=True)
+        print("=" * 50, flush=True)
+        sys.stdout.flush()
 
         return {
-            "received_body": body,
+            "status": "received",
+            "raw_body": body_str,
+            "parsed_body": body,
             "headers": headers,
+            "content_type": headers.get("content-type", "not set"),
             "method": request.method,
             "url": str(request.url)
         }
