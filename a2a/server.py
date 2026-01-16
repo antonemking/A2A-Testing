@@ -56,8 +56,11 @@ def verify_api_key(authorization: Optional[str] = Header(None)) -> bool:
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    # Support both "Bearer <token>" and just "<token>"
+    # Support "Bearer Bearer <token>", "Bearer <token>", and just "<token>"
+    # (ServiceNow sometimes sends double Bearer)
     token = authorization.replace("Bearer ", "").strip()
+    # Handle double Bearer case
+    token = token.replace("Bearer ", "").strip()
     if token != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
@@ -160,8 +163,11 @@ def create_a2a_app(base_url: str = "http://localhost:8000") -> FastAPI:
         method = rpc_request.method
         params = rpc_request.params or {}
 
+        logger.info(f"JSON-RPC request: method={method}, params={params}")
+
         try:
-            if method == "tasks/send":
+            if method in ["tasks/send", "message/send"]:
+                # Handle both tasks/send and message/send (ServiceNow uses message/send)
                 result = await handle_task_send(params, agent_graph)
             elif method == "tasks/get":
                 result = handle_task_get(params)
@@ -173,9 +179,12 @@ def create_a2a_app(base_url: str = "http://localhost:8000") -> FastAPI:
                     error={"code": -32601, "message": f"Method not found: {method}"}
                 )
 
+            logger.info(f"JSON-RPC response: {result}")
             return JSONRPCResponse(id=rpc_request.id, result=result)
 
         except Exception as e:
+            import traceback
+            logger.error(f"JSON-RPC error: {e}\n{traceback.format_exc()}")
             return JSONRPCResponse(
                 id=rpc_request.id,
                 error={"code": -32000, "message": str(e)}
@@ -270,13 +279,17 @@ async def handle_task_send(params: dict, agent_graph) -> dict:
     # Extract the message - handle multiple formats
     user_text = ""
 
-    # Format 1: Standard A2A format {"message": {"role": "user", "parts": [{"text": "..."}]}}
+    # Format 1: Standard A2A / ServiceNow format
+    # {"message": {"role": "user", "parts": [{"kind": "text", "text": "..."}]}}
+    # or {"message": {"role": "user", "parts": [{"type": "text", "text": "..."}]}}
     message_data = params.get("message", {})
     if message_data:
         parts = message_data.get("parts", [])
         for part in parts:
             if isinstance(part, dict):
-                if part.get("type") == "text" or "text" in part:
+                # ServiceNow uses "kind", standard A2A uses "type"
+                part_type = part.get("kind") or part.get("type")
+                if part_type == "text" or "text" in part:
                     user_text = part.get("text", "")
                     break
             elif isinstance(part, str):
@@ -300,6 +313,8 @@ async def handle_task_send(params: dict, agent_graph) -> dict:
 
     if not user_text:
         raise ValueError(f"No text content found in request. Received params: {params}")
+
+    logger.info(f"Extracted user text: {user_text}")
 
     # Create or update task
     if task_id in tasks:
