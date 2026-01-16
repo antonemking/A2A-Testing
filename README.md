@@ -29,9 +29,9 @@ ServiceNow Agent Orchestrator
 
 ## Live Deployment
 
-- **URL**: https://a2a-testing.onrender.com
-- **Agent Card**: https://a2a-testing.onrender.com/.well-known/agent.json
-- **API Docs**: https://a2a-testing.onrender.com/docs
+- **URL**: https://{{YOUR RENDER PROJECT}}.onrender.com
+- **Agent Card**: https://{{YOUR RENDER PROJECT}}.onrender.com/.well-known/agent.json
+- **API Docs**: https://{{YOUR RENDER PROJECT}}.onrender.com/docs
 
 ## ServiceNow A2A Integration
 
@@ -39,9 +39,9 @@ ServiceNow Agent Orchestrator
 
 | Setting | Value |
 |---------|-------|
-| Agent URL | `https://a2a-testing.onrender.com/` |
+| Agent URL | `https://{{YOUR RENDER PROJECT}}.onrender.com/` |
 | Authentication | Bearer Token |
-| API Key | `my-servicenow-token-1234` |
+| API Key | `{{YOUR TOKEN}}` |
 
 ### Request Format (ServiceNow → Agent)
 
