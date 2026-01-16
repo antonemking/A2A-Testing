@@ -216,8 +216,19 @@ def create_a2a_app(base_url: str = "http://localhost:8000") -> FastAPI:
     @app.post("/debug")
     async def debug_request(request: Request):
         """Debug endpoint - returns exactly what was received."""
-        body = await request.json()
+        try:
+            body = await request.json()
+        except:
+            body = (await request.body()).decode()
         headers = dict(request.headers)
+
+        # Print to logs so you can see in Render console
+        print("=" * 50)
+        print("DEBUG: Incoming request from ServiceNow")
+        print(f"BODY: {body}")
+        print(f"HEADERS: {headers}")
+        print("=" * 50)
+
         return {
             "received_body": body,
             "headers": headers,
