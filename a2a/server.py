@@ -302,22 +302,51 @@ async def handle_task_send(params: dict, agent_graph) -> dict:
                     else:
                         langchain_messages.append(AIMessage(content=part.text))
 
+        print(f"Invoking agent with messages: {langchain_messages}")
+
         # Run the agent
         result = await agent_graph.ainvoke({"messages": langchain_messages})
 
-        # Extract the response
+        print(f"Agent result: {result}")
+
+        # Extract the response and tool calls
         response_text = ""
+        tools_used = []
+
+        for msg in result["messages"]:
+            if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    tools_used.append({
+                        "tool": tool_call.get("name", "unknown"),
+                        "args": tool_call.get("args", {})
+                    })
+            if hasattr(msg, 'name') and msg.name:  # Tool response
+                tools_used.append({
+                    "tool_response": msg.name,
+                    "result": msg.content[:200] if msg.content else ""
+                })
+
+        # Get final response
         for msg in reversed(result["messages"]):
-            if isinstance(msg, AIMessage) and msg.content:
+            if isinstance(msg, AIMessage) and msg.content and not hasattr(msg, 'name'):
                 response_text = msg.content
                 break
 
+        # Build detailed response with actions
+        if tools_used:
+            action_summary = f"\n\n[Actions taken: {', '.join([t.get('tool', t.get('tool_response', 'action')) for t in tools_used])}]"
+        else:
+            action_summary = ""
+
+        print(f"Response text: {response_text}")
+        print(f"Tools used: {tools_used}")
+
         # Update task with response
-        agent_message = Message(role="agent", parts=[Part(type="text", text=response_text)])
+        agent_message = Message(role="agent", parts=[Part(type="text", text=response_text + action_summary)])
         task.history.append(agent_message)
         task.status = TaskStatus(state=TaskState.COMPLETED, message=agent_message)
 
-        # Add artifact
+        # Add artifact with tool actions
         task.artifacts.append(Artifact(
             name="response",
             parts=[Part(type="text", text=response_text)],
@@ -325,9 +354,16 @@ async def handle_task_send(params: dict, agent_graph) -> dict:
             lastChunk=True
         ))
 
+        # Add metadata about actions taken
+        task.metadata["actions"] = tools_used
+        task.metadata["tools_used"] = [t.get("tool", t.get("tool_response")) for t in tools_used]
+
     except Exception as e:
+        import traceback
+        error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"
+        print(f"Agent error: {error_msg}")
         task.status = TaskStatus(state=TaskState.FAILED)
-        task.status.message = Message(role="agent", parts=[Part(type="text", text=f"Error: {str(e)}")])
+        task.status.message = Message(role="agent", parts=[Part(type="text", text=error_msg)])
 
     return task.model_dump(by_alias=True, exclude_none=True)
 
