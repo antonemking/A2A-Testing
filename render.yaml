@@ -1,0 +1,19 @@
+# Render Blueprint for A2A Agent
+# Deploy by connecting this repo at https://dashboard.render.com
+
+services:
+  - type: web
+    name: a2a-agent
+    runtime: python
+    buildCommand: pip install -e .
+    startCommand: python main.py
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false  # Set this manually in Render dashboard
+      - key: A2A_API_KEY
+        generateValue: true  # Auto-generate a secure API key
+      - key: PORT
+        value: 10000
+      - key: HOST
+        value: 0.0.0.0
+    healthCheckPath: /health
