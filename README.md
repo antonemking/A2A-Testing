@@ -1,162 +1,189 @@
 # LangGraph A2A Agent
 
-A simple LangGraph agent with Google's A2A (Agent-to-Agent) protocol support, designed for testing agent interoperability with ServiceNow.
+A LangGraph agent deployed to Render with Google's A2A (Agent-to-Agent) protocol support, designed for ServiceNow agent orchestration integration.
 
-## Features
+## Architecture
 
-- **LangGraph Agent**: Stateful agent workflow with tools for weather, calculations, and knowledge search
-- **A2A Protocol**: Full implementation of Google's Agent-to-Agent protocol
-- **API Key Authentication**: Secure token-based access
-- **LangGraph Cloud Ready**: Configuration for deployment to LangGraph Cloud
+```
+ServiceNow Agent Orchestrator
+           │
+           ▼ (JSON-RPC over HTTPS)
+    ┌──────────────────┐
+    │  Render (Host)   │
+    │  ┌────────────┐  │
+    │  │  FastAPI   │  │
+    │  │  A2A Server│  │
+    │  └─────┬──────┘  │
+    │        │         │
+    │  ┌─────▼──────┐  │
+    │  │ LangGraph  │  │
+    │  │   Agent    │  │
+    │  └─────┬──────┘  │
+    │        │         │
+    │  ┌─────▼──────┐  │
+    │  │  OpenAI    │  │
+    │  │ GPT-4o-mini│  │
+    │  └────────────┘  │
+    └──────────────────┘
+```
 
-## Quick Start
+## Live Deployment
 
-### 1. Install Dependencies
+- **URL**: https://a2a-testing.onrender.com
+- **Agent Card**: https://a2a-testing.onrender.com/.well-known/agent.json
+- **API Docs**: https://a2a-testing.onrender.com/docs
+
+## ServiceNow A2A Integration
+
+### Configuration in ServiceNow
+
+| Setting | Value |
+|---------|-------|
+| Agent URL | `https://a2a-testing.onrender.com/` |
+| Authentication | Bearer Token |
+| API Key | `my-servicenow-token-1234` |
+
+### Request Format (ServiceNow → Agent)
+
+ServiceNow sends JSON-RPC requests:
+
+```json
+{
+  "method": "message/send",
+  "id": "unique-request-id",
+  "jsonrpc": "2.0",
+  "params": {
+    "metadata": {},
+    "message": {
+      "role": "user",
+      "kind": "message",
+      "parts": [
+        {
+          "kind": "text",
+          "text": "what is the weather in columbus ohio?"
+        }
+      ],
+      "messageId": "unique-message-id"
+    }
+  }
+}
+```
+
+### Response Format (Agent → ServiceNow)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "unique-request-id",
+  "result": {
+    "id": "task-id",
+    "status": {
+      "state": "completed",
+      "message": {
+        "role": "agent",
+        "parts": [{"type": "text", "text": "The weather in Columbus, Ohio is partly cloudy with a temperature of 65°F."}]
+      }
+    },
+    "artifacts": [...],
+    "metadata": {
+      "actions": [{"tool": "get_weather", "args": {"location": "Columbus, Ohio"}}],
+      "tools_used": ["get_weather"]
+    }
+  }
+}
+```
+
+## Agent Skills
+
+| Skill | Description | Example Prompts |
+|-------|-------------|-----------------|
+| **Weather** | Get weather for any location | "What's the weather in Tokyo?" |
+| **Calculator** | Math calculations | "Calculate 100 * 5" |
+| **Knowledge** | Search knowledge base | "What is ServiceNow?" |
+
+## Local Development
+
+### Prerequisites
+
+- Python 3.11+
+- OpenAI API key
+
+### Setup
 
 ```bash
+# Create virtual environment
+python3.11 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
 pip install -e .
-# or
-pip install -r requirements.txt
-```
 
-### 2. Configure Environment
-
-```bash
+# Configure environment
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your OPENAI_API_KEY and A2A_API_KEY
 ```
 
-Required environment variables:
-- `OPENAI_API_KEY`: Your OpenAI API key for the LLM
-- `A2A_API_KEY`: API key for authenticating A2A requests (default: `demo-api-key-12345`)
-
-### 3. Run Locally
+### Run Locally
 
 ```bash
 python main.py
 ```
 
-The server will start at `http://localhost:8000`
+Server starts at http://localhost:8000
 
-## A2A Protocol Endpoints
+## Testing with curl
 
-### Agent Discovery
-
+### Health Check
 ```bash
-# Get Agent Card (no auth required)
-curl http://localhost:8000/.well-known/agent.json
+curl https://a2a-testing.onrender.com/health
 ```
 
-### Send a Task (JSON-RPC)
-
+### Agent Card Discovery
 ```bash
-curl -X POST http://localhost:8000/ \
+curl https://a2a-testing.onrender.com/.well-known/agent.json
+```
+
+### Send Task (REST)
+```bash
+curl -X POST https://a2a-testing.onrender.com/tasks/send \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer demo-api-key-12345" \
+  -H "Authorization: Bearer my-servicenow-token-1234" \
+  -d '{"message": {"role": "user", "parts": [{"type": "text", "text": "What is 25 * 4?"}]}}'
+```
+
+### Send Task (JSON-RPC - ServiceNow format)
+```bash
+curl -X POST https://a2a-testing.onrender.com/ \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer my-servicenow-token-1234" \
   -d '{
+    "method": "message/send",
+    "id": "1",
     "jsonrpc": "2.0",
-    "method": "tasks/send",
     "params": {
       "message": {
         "role": "user",
-        "parts": [{"type": "text", "text": "What is the weather in San Francisco?"}]
+        "kind": "message",
+        "parts": [{"kind": "text", "text": "What is the weather in San Francisco?"}]
       }
-    },
-    "id": "1"
-  }'
-```
-
-### Send a Task (REST)
-
-```bash
-curl -X POST http://localhost:8000/tasks/send \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer demo-api-key-12345" \
-  -d '{
-    "message": {
-      "role": "user",
-      "parts": [{"type": "text", "text": "Calculate 25 * 4"}]
     }
   }'
 ```
 
-### Get Task Status
+## Deploy to Render
 
-```bash
-curl http://localhost:8000/tasks/{task_id} \
-  -H "Authorization: Bearer demo-api-key-12345"
-```
-
-## Deploy to LangGraph Cloud
-
-### 1. Install LangGraph CLI
-
-```bash
-pip install langgraph-cli
-```
-
-### 2. Deploy
-
-```bash
-# Login to LangGraph Cloud
-langgraph auth login
-
-# Deploy the agent
-langgraph deploy
-```
-
-### 3. Access Your Deployed Agent
-
-After deployment, you'll receive a URL like:
-```
-https://your-deployment.langgraph.cloud
-```
-
-The A2A endpoints will be available at:
-- Agent Card: `https://your-deployment.langgraph.cloud/.well-known/agent.json`
-- Tasks: `https://your-deployment.langgraph.cloud/tasks/send`
-
-## Alternative Deployment Options
-
-### Docker
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY . .
-RUN pip install -e .
-EXPOSE 8000
-CMD ["python", "main.py"]
-```
-
-```bash
-docker build -t a2a-agent .
-docker run -p 8000:8000 -e OPENAI_API_KEY=your-key -e A2A_API_KEY=your-api-key a2a-agent
-```
-
-### Cloud Run / Render / Railway
-
-1. Push to GitHub
-2. Connect your repo to the cloud provider
-3. Set environment variables
-4. Deploy
-
-## Testing with ServiceNow A2A
-
-1. Deploy your agent and note the public URL
-2. In ServiceNow, configure the A2A connector with:
-   - **Agent URL**: `https://your-deployment-url.com`
-   - **API Key**: Your `A2A_API_KEY` value
-3. ServiceNow will discover your agent via `/.well-known/agent.json`
-4. Use the skills defined in the Agent Card to send tasks
-
-## Agent Skills
-
-| Skill | Description | Example |
-|-------|-------------|---------|
-| Weather | Get weather for locations | "What's the weather in Tokyo?" |
-| Calculator | Math calculations | "Calculate 100 / 5" |
-| Knowledge | Search knowledge base | "What is ServiceNow?" |
+1. Push code to GitHub
+2. Go to https://dashboard.render.com/new/web
+3. Connect your GitHub repo
+4. Configure:
+   - **Build Command**: `pip install -e .`
+   - **Start Command**: `python main.py`
+5. Add Environment Variables:
+   - `OPENAI_API_KEY` - Your OpenAI key
+   - `A2A_API_KEY` - Token for authenticating requests
+   - `PORT` - `10000`
+   - `HOST` - `0.0.0.0`
+6. Deploy
 
 ## Project Structure
 
@@ -169,14 +196,17 @@ docker run -p 8000:8000 -e OPENAI_API_KEY=your-key -e A2A_API_KEY=your-api-key a
 │   ├── __init__.py
 │   ├── models.py         # A2A protocol data models
 │   └── server.py         # FastAPI A2A server
-├── langgraph.json        # LangGraph Cloud config
-├── main.py               # Local server entry point
+├── main.py               # Server entry point
 ├── pyproject.toml        # Python package config
+├── render.yaml           # Render deployment config
 └── requirements.txt      # Dependencies
 ```
 
-## API Documentation
+## Environment Variables
 
-When running locally, access the interactive API docs at:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key (required) | - |
+| `A2A_API_KEY` | API key for authenticating A2A requests | `demo-api-key-12345` |
+| `HOST` | Server host | `0.0.0.0` |
+| `PORT` | Server port | `8000` |
