@@ -174,12 +174,22 @@ def create_a2a_app(base_url: str = "http://localhost:8000") -> FastAPI:
     # REST endpoints (alternative to JSON-RPC)
     @app.post("/tasks/send")
     async def task_send(
-        request: TaskSendRequest,
+        request: Request,
         _auth: bool = Depends(verify_api_key)
     ):
         """Send a task to the agent (REST endpoint)."""
-        result = await handle_task_send(request.model_dump(), agent_graph)
-        return result
+        try:
+            body = await request.json()
+            # Log incoming request for debugging
+            print(f"Received task/send request: {body}")
+            result = await handle_task_send(body, agent_graph)
+            return result
+        except Exception as e:
+            print(f"Error processing request: {e}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": str(e), "detail": "Failed to process request"}
+            )
 
     @app.get("/tasks/{task_id}")
     async def task_get(
@@ -202,6 +212,19 @@ def create_a2a_app(base_url: str = "http://localhost:8000") -> FastAPI:
         """Health check endpoint."""
         return {"status": "healthy", "version": "1.0.0"}
 
+    # Debug endpoint to see raw request
+    @app.post("/debug")
+    async def debug_request(request: Request):
+        """Debug endpoint - returns exactly what was received."""
+        body = await request.json()
+        headers = dict(request.headers)
+        return {
+            "received_body": body,
+            "headers": headers,
+            "method": request.method,
+            "url": str(request.url)
+        }
+
     return app
 
 
@@ -209,21 +232,41 @@ async def handle_task_send(params: dict, agent_graph) -> dict:
     """Handle a task/send request."""
     # Create or retrieve task
     task_id = params.get("id") or str(uuid4())
-    session_id = params.get("sessionId") or str(uuid4())
+    session_id = params.get("sessionId") or params.get("session_id") or str(uuid4())
 
-    # Extract the message
-    message_data = params.get("message", {})
-    parts = message_data.get("parts", [])
-
-    # Get the text content from the message
+    # Extract the message - handle multiple formats
     user_text = ""
-    for part in parts:
-        if part.get("type") == "text" or "text" in part:
-            user_text = part.get("text", "")
-            break
+
+    # Format 1: Standard A2A format {"message": {"role": "user", "parts": [{"text": "..."}]}}
+    message_data = params.get("message", {})
+    if message_data:
+        parts = message_data.get("parts", [])
+        for part in parts:
+            if isinstance(part, dict):
+                if part.get("type") == "text" or "text" in part:
+                    user_text = part.get("text", "")
+                    break
+            elif isinstance(part, str):
+                user_text = part
+                break
+        # Also check for direct text in message
+        if not user_text and isinstance(message_data, dict):
+            user_text = message_data.get("text", "") or message_data.get("content", "")
+
+    # Format 2: Simple format {"text": "..."} or {"content": "..."}
+    if not user_text:
+        user_text = params.get("text", "") or params.get("content", "") or params.get("query", "")
+
+    # Format 3: Prompt format {"prompt": "..."}
+    if not user_text:
+        user_text = params.get("prompt", "")
+
+    # Format 4: Input format {"input": "..."}
+    if not user_text:
+        user_text = params.get("input", "")
 
     if not user_text:
-        raise ValueError("No text content in message")
+        raise ValueError(f"No text content found in request. Received params: {params}")
 
     # Create or update task
     if task_id in tasks:
